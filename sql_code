@@ -1,0 +1,118 @@
+
+CREATE TABLE loan_data (
+    id BIGINT,
+    year INT,
+    issue_d TEXT,
+    final_d TEXT,
+    emp_length_int FLOAT,
+    home_ownership TEXT,
+    home_ownership_cat INT,
+    income_category TEXT,
+    annual_inc FLOAT,
+    income_cat INT,
+    loan_amount FLOAT,
+    term TEXT,
+    term_cat INT,
+    application_type TEXT,
+    application_type_cat INT,
+    purpose TEXT,
+    purpose_cat INT,
+    interest_payments TEXT,
+    interest_payment_cat INT,
+    loan_condition TEXT,
+    loan_condition_cat INT,
+    interest_rate FLOAT,
+    grade TEXT,
+    grade_cat INT,
+    dti FLOAT,
+    total_pymnt FLOAT,
+    total_rec_prncp FLOAT,
+    recoveries FLOAT,
+    installment FLOAT,
+    region TEXT
+);
+SELECT COUNT(*) FROM loan_data;
+
+SELECT COUNT(DISTINCT year) as unique_years, MIN(year), MAX(year) FROM loan_data;
+
+
+-- Standardize home_ownership to uppercase
+UPDATE loan_data
+SET home_ownership = UPPER(home_ownership);
+
+SELECT home_ownership FROM loan_data;
+
+/* 
+Create profitability as total_pymnt - loan_amount
+This helps measure how much payment was received above principal
+*/
+ALTER TABLE loan_data
+ADD COLUMN profitability FLOAT;
+
+UPDATE loan_data
+SET profitability = total_pymnt - loan_amount;
+
+SELECT profitability FROM loan_data;
+
+
+/* Create risk_flag column: 1 = Bad Loan, 0 = Good Loan */
+ALTER TABLE loan_data
+ADD COLUMN risk_flag INT;
+
+-- Set risk_flag values based on loan_condition
+UPDATE loan_data
+SET risk_flag = CASE
+    WHEN loan_condition = 'Bad Loan' THEN 1
+    ELSE 0
+END;
+
+SELECT risk_flag FROM loan_data;
+
+/* Create numeric term column by removing text from ' 36 months' / ' 60 months' */
+ALTER TABLE loan_data
+ADD COLUMN term_numeric INT;
+
+-- Fill term_numeric with 36 or 60 extracted from term
+
+UPDATE loan_data
+SET term_numeric = CAST(regexp_replace(term, '[^0-9]', '', 'g') AS INT);
+
+SELECT term_numeric FROM loan_data;
+
+/* Add income_to_loan_ratio column, 
+This shows how many times the borrower’s income covers the loan amount. */
+
+ALTER TABLE loan_data
+ADD COLUMN income_to_loan_ratio FLOAT;
+
+-- Fill income_to_loan_ratio = annual_inc / loan_amount
+
+UPDATE loan_data
+SET income_to_loan_ratio = annual_inc / loan_amount;
+
+
+SELECT income_to_loan_ratio FROM loan_data;
+
+/* Create cleaned table with default_rate_indicator by year, 
+This table will be your final export for Excel, 
+including a per‑year default rate. */
+
+CREATE TABLE loans_cleaned AS
+SELECT
+    *,
+    AVG(CASE WHEN loan_condition = 'Bad Loan' THEN 1.0 ELSE 0.0 END)
+        OVER (PARTITION BY year) AS default_rate_indicator
+FROM loan_data;
+
+/* Quick checks on loans_cleaned */ 
+
+-- Row count should match original
+SELECT COUNT(*) FROM loans_cleaned;
+
+-- Verify new columns
+SELECT id, loan_amount, total_pymnt, profitability,
+       risk_flag, term, term_numeric,
+       annual_inc, income_to_loan_ratio,
+       year, default_rate_indicator
+FROM loans_cleaned
+LIMIT 10;
